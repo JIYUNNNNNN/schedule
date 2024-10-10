@@ -1,0 +1,63 @@
+/* src/Chatbot.css */
+/* Chatbot.css */
+
+.chatbox {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background-color: #f9f9f9;
+  padding: 10px;
+  border-left: 2px solid #ddd; /* 구분선 추가 */
+}
+
+.messages {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.input-box {
+  display: flex;
+  margin-top: 10px;
+}
+
+.message {
+  margin-bottom: 10px;
+}
+
+.message.user {
+  text-align: right;
+  /* font-weight: bold; */
+}
+
+.message.bot {
+  text-align: left;
+}
+
+
+.input-box input {
+  flex: 1;
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.input-box button {
+  background-color: #007bff;
+  border: none;
+  color: white;
+  padding: 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+}
+
+.input-box button:hover {
+  background-color: #0056b3;
+}
+
+.input-box button svg {
+  width: 20px;
+  height: 20px;
+}
