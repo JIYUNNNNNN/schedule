@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 
-function AddEventForm({ selectedEvent, calendar }) {
+function AddEventForm({ selectedEvent, calendar, onClose }) {
+  const todayDateTime = new Date().toISOString().slice(0, 16);
+
   const [summary, setSummary] = useState('');
   const [description, setDescription] = useState('');
-  const [startDate, setStartDate] = useState(selectedEvent ? selectedEvent.start : '');
-  const [endDate, setEndDate] = useState(selectedEvent ? selectedEvent.end : '');
+  const [startDate, setStartDate] = useState(selectedEvent ? selectedEvent.start.slice(0, 16) : todayDateTime);
+  const [endDate, setEndDate] = useState(selectedEvent ? selectedEvent.end.slice(0, 16) : todayDateTime);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -14,11 +16,11 @@ function AddEventForm({ selectedEvent, calendar }) {
       description,
       start: {
         dateTime: new Date(startDate).toISOString(),
-        timeZone: 'Asia/Seoul', // 서울 시간대 설정
+        timeZone: 'Asia/Seoul',
       },
       end: {
         dateTime: new Date(endDate).toISOString(),
-        timeZone: 'Asia/Seoul', // 서울 시간대 설정
+        timeZone: 'Asia/Seoul',
       },
     };
 
@@ -29,39 +31,62 @@ function AddEventForm({ selectedEvent, calendar }) {
       },
       body: JSON.stringify(event),
     })
-      .then(response => response.json())
-      .then(data => {
+      .then((response) => response.json())
+      .then((data) => {
         console.log('Event added:', data);
-        alert('일정추가 완료하였습니다.');
+        alert('일정이 추가되었습니다.');
         if (calendar) {
-          calendar.refetchEvents(); // 캘린더 새로고침
+          calendar.refetchEvents();
         }
+        onClose();
       })
-      .catch(err => {
+      .catch((err) => {
         console.error('Failed to add event:', err);
-        alert('Error adding event');
+        alert('일정 추가 중 오류가 발생했습니다.');
       });
   };
 
   return (
     <form onSubmit={handleSubmit}>
       <label>
-        제목:
-        <input type="text" value={summary} onChange={(e) => setSummary(e.target.value)} />
+        <input
+          placeholder="제목을 입력해주세요"
+          type="text"
+          value={summary}
+          onChange={(e) => setSummary(e.target.value)}
+          required
+        />
       </label>
       <label>
-        내용:
-        <textarea value={description} onChange={(e) => setDescription(e.target.value)} />
+        <textarea
+          placeholder="내용을 입력해주세요"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          required
+        />
       </label>
       <label>
         시작일:
-        <input type="datetime-local" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+        <input
+          type="datetime-local"
+          value={startDate}
+          onChange={(e) => setStartDate(e.target.value)}
+          required
+        />
       </label>
       <label>
         종료일:
-        <input type="datetime-local" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+        <input
+          type="datetime-local"
+          value={endDate}
+          onChange={(e) => setEndDate(e.target.value)}
+          required
+        />
       </label>
-      <button type="submit">일정 추가</button>
+      <div style={{ display: 'flex', justifyContent: 'center', gap: '10px', marginTop: '10px' }}>
+        <button type="submit">일정 추가</button>
+        <button type="button" onClick={onClose}>닫기</button>
+      </div>
     </form>
   );
 }

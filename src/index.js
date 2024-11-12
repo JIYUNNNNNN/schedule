@@ -1,7 +1,8 @@
 import React from 'react';
-import ReactDOM from 'react-dom';
+import { createRoot } from 'react-dom/client'; // createRoot를 import
 import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
 import App from './App';
+
 
 const Root = () => {
   return (
@@ -13,4 +14,6 @@ const Root = () => {
   );
 };
 
-ReactDOM.render(<Root />, document.getElementById('root'));
+const rootElement = document.getElementById('root');
+const root = createRoot(rootElement); // createRoot 사용
+root.render(<Root />); // 변경된 render 메서드

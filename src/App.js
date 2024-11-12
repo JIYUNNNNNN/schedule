@@ -1,28 +1,75 @@
 import React, { useEffect, useState } from 'react';
 import AddEventForm from './AddEventForm';
-import DeleteEventForm from './DeleteEventForm';
 import Chatbot from './chatbot'; // 챗봇 컴포넌트 추가
+import FullCalendar from '@fullcalendar/react'; // FullCalendar 컴포넌트 가져오기
+import dayGridPlugin from '@fullcalendar/daygrid'; // dayGridPlugin 가져오기
+import timeGridPlugin from '@fullcalendar/timegrid'; // timeGridPlugin 가져오기
+import listPlugin from '@fullcalendar/list'; // listPlugin 가져오기
+import { format } from 'date-fns'; // date-fns 라이브러리에서 format 가져오기
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faPlus } from '@fortawesome/free-solid-svg-icons';
 import './App.css'; // 스타일 임포트
+
+const API_KEY = '5020074f27033cc755f8d46cb70473ec'; // API 키 정의
 
 function App() {
   const [events, setEvents] = useState([]);
+  const [newEvent, setNewEvent] = useState({ content_title: '', description: '', location: '', start: '', end: '' });
   const [showAddEventForm, setShowAddEventForm] = useState(false);
-  const [showDeleteEventForm, setShowDeleteEventForm] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState(null);
-  const [weather, setWeather] = useState(null);
-  const [calendar, setCalendar] = useState(null);
-  const API_KEY = '5020074f27033cc755f8d46cb70473ec'; // OpenWeatherMap API 키를 여기에 입력하세요
+  const [mouseX, setMouseX] = useState(undefined);
+  const [mouseY, setMouseY] = useState(undefined);
+  const [weather, setWeather] = useState(null); // 날씨 정보 상태 추가
 
+  // 방위각을 문자열로 변환하는 함수
+  const degToCompass = (deg) => {
+    const directions = ['북', '북동', '동', '남동', '남', '남서', '서', '북서', '북'];
+    return directions[Math.round(deg / 45) % 8];
+  };
+
+  // 팝업 폼 표시 위치를 조정하는 메서드
+  const handleShowForm = () => {
+    setShowAddEventForm(!showAddEventForm);
+  };
+  
+
+  // 일정 추가 핸들러
   const handleAddEvent = (dateStr) => {
-    setSelectedEvent({ start: dateStr, end: dateStr });
+    setNewEvent({ ...newEvent, start: dateStr, end: dateStr });
     setShowAddEventForm(true);
   };
 
-  const handleDeleteEvent = (eventId) => {
-    setSelectedEvent({ id: eventId });
-    setShowDeleteEventForm(true);
+  // 일정 삭제 핸들러
+  const handleDelete = () => {
+    if (selectedEvent) {
+      const confirmed = window.confirm("정말로 이 이벤트를 삭제하시겠습니까?");
+      if (confirmed) {
+        handleConfirmDelete(selectedEvent.id); // 이벤트 삭제 로직 호출
+      }
+    }
   };
 
+  // 일정 삭제 확정
+  const handleConfirmDelete = (eventId) => {
+    if (eventId) {
+      fetch(`http://localhost:3001/api/delete-event/${eventId}`, {
+        method: 'DELETE',
+      })
+        .then((response) => {
+          if (response.ok) {
+            setEvents((prevEvents) => prevEvents.filter(event => event.id !== eventId));
+            setSelectedEvent(null);
+          } else {
+            console.error('구글 캘린더 이벤트 삭제 실패');
+          }
+        })
+        .catch((error) => {
+          console.error('이벤트 삭제 중 오류 발생:', error);
+        });
+    }
+  };
+
+  // 이벤트 가져오기
   const fetchEvents = () => {
     fetch('http://localhost:3001/api/events')
       .then((response) => response.json())
@@ -32,6 +79,7 @@ function App() {
           title: event.summary,
           start: event.start.dateTime || event.start.date,
           end: event.end.dateTime || event.end.date,
+          location: event.location || '',
           description: event.description || '',
         }));
         setEvents(calendarEvents);
@@ -39,85 +87,51 @@ function App() {
       .catch((error) => console.error('이벤트 가져오기 중 오류 발생:', error));
   };
 
-  const degToCompass = (num) => {
-    const val = Math.floor((num / 22.5) + 0.5);
-    const arr = ['북', '북북동', '동북동', '동동북', '동', '동동남', '남동', '남남동', '남', '남남서', '서남서', '서서남', '서', '서북서', '북서', '북북서'];
-    return arr[(val % 16)];
+  // 새 이벤트 저장 핸들러
+  const handleSave = () => {
+    const event = {
+      title: `${newEvent.content_title} - ${newEvent.description}`,
+      start: newEvent.start,
+      end: newEvent.end,
+      location: newEvent.location,
+    };
+
+    setEvents((prevEvents) => [...prevEvents, event]);
+    setNewEvent({ content_title: '', description: '', location: '', start: '', end: '' });
+    setShowAddEventForm(false);
   };
 
-  // 캘린더 인스턴스는 한 번만 생성
-  useEffect(() => {
-    const calendarEl = document.getElementById('calendar');
-    const calendarInstance = new window.FullCalendar.Calendar(calendarEl, {
-      locale: 'ko',
-      initialView: 'dayGridMonth',
-      headerToolbar: {
-        left: 'prev,next today',
-        center: 'title',
-        right: 'dayGridMonth,timeGridWeek,timeGridDay,listMonth',
-      },
-      eventClick: function (info) {
-        const start_year = info.event.start.getUTCFullYear();
-        const start_month = info.event.start.getMonth() + 1;
-        const start_date = info.event.start.getUTCDate();
-        const start_hour = info.event.start.getHours();
-        const end_hour = info.event.end ? info.event.end.getHours() : '';
+  // 이벤트 클릭 핸들러
+  const handleEventClick = (clickInfo) => {
+    const event = clickInfo.event;
+    const { clientX: mouseX, clientY: mouseY } = clickInfo.jsEvent;
+    setSelectedEvent(event);
+    setMouseX(mouseX);
+    setMouseY(mouseY - 90); // 90px 위로 이동
+  };
 
-        const start = `${start_year}-${start_month}-${start_date} ${start_hour}시 ~ ${end_hour}시`;
-
-        const attends = info.event.extendedProps.attachments
-          ? info.event.extendedProps.attachments.map(item => `<div><a href='${item.fileUrl}' target='_blank'>[첨부파일]</a></div>`).join('')
-          : '';
-
-        const description = info.event.extendedProps.description || '';
-
-        const contents = `
-          <div style='font-weight:bold; font-size:20px; margin-bottom:30px; text-align:center'>
-            ${start}
+  // 이벤트 세부 정보 표시
+  const showEventDetails = () => {
+    if (selectedEvent && mouseX !== undefined && mouseY !== undefined) {
+      const startDate = selectedEvent.start && format(selectedEvent.start, 'HH:mm', { timeZone: 'Asia/Seoul' });
+      const endDate = selectedEvent.end && format(selectedEvent.end, 'HH:mm', { timeZone: 'Asia/Seoul' });
+      
+      return (
+        <div className="event-details" style={{ position: 'absolute', left: mouseX, top: mouseY }}>
+          <h2>{selectedEvent.title}</h2>
+          <p>메모 : {selectedEvent.extendedProps.description}</p>
+          <div className='time_place'>
+            <p>시간 : {startDate} ~ {endDate}</p>
           </div>
-          <div style='font-size:18px; margin-bottom:20px'>
-            제목: ${info.event.title}
+          <div style={{ display: 'flex', justifyContent: 'center', gap: '10px', marginTop: '10px' }}>
+          <button onClick={() => setSelectedEvent(null)}>닫기</button>
+          <button onClick={handleDelete}>삭제</button>
           </div>
-          <div style='width:500px'>
-            ${description}
-            ${attends}
-          </div>
-          <div style='margin-top: 20px; text-align: center;'>
-            <button id="add-event-button" data-event-id="${info.event.id}">일정 추가</button>
-            <button id="delete-event-button" data-event-id="${info.event.id}">일정 삭제</button>
-          </div>
-        `;
-
-        window.$('#popup').html(contents);
-        window.$('#popup').bPopup({
-          speed: 650,
-          transition: 'slideIn',
-          transitionClose: 'slideBack',
-          position: [(document.documentElement.clientWidth - 500) / 2, 30], // x, y
-        });
-
-        document.getElementById('add-event-button').onclick = () => handleAddEvent(info.event.id);
-        document.getElementById('delete-event-button').onclick = () => handleDeleteEvent(info.event.id);
-
-        info.jsEvent.stopPropagation();
-        info.jsEvent.preventDefault();
-      },
-      dateClick: function(info) {
-        handleAddEvent(info.dateStr);
-      }
-    });
-
-    setCalendar(calendarInstance);
-    calendarInstance.render();
-  }, []);
-
-  // events가 변경될 때마다 이벤트 소스만 업데이트
-  useEffect(() => {
-    if (calendar) {
-      calendar.removeAllEvents();
-      calendar.addEventSource(events);
+        </div>
+      );
     }
-  }, [events, calendar]);
+    return null;
+  };
 
   useEffect(() => {
     navigator.geolocation.getCurrentPosition((position) => {
@@ -137,18 +151,63 @@ function App() {
         .catch(err => console.error('날씨 데이터 가져오기 실패:', err));
     });
     fetchEvents();
-  }, [API_KEY]);
+  }, []); // API_KEY는 useEffect 안에서 사용하지 않음
 
   return (
     <div className="app-container">
       <div className="calendar-container">
         <div>
-          <button onClick={() => setShowAddEventForm(!showAddEventForm)}>
-            {showAddEventForm ? '일정 추가 폼 닫기' : '일정 추가'}
+          <button onClick={handleShowForm} className="add-event-button">
+            <FontAwesomeIcon icon={faPlus} size="2x" />
           </button>
-          {showAddEventForm && <AddEventForm selectedEvent={selectedEvent} calendar={calendar} />}
-          {showDeleteEventForm && <DeleteEventForm selectedEvent={selectedEvent} onDelete={fetchEvents} />}
-          <div id="calendar"></div>
+
+          {/* 팝업 폼 */}
+          {showAddEventForm && (
+            <div className="popup-form" style={{ position: 'absolute', top: '50px', left: '70px', zIndex: 1000 }}>
+              <AddEventForm
+                newEvent={newEvent}
+                setNewEvent={setNewEvent}
+                onSave={handleSave}
+                onClose={handleShowForm}
+              />
+            </div>
+          )}
+
+<FullCalendar
+  plugins={[dayGridPlugin, timeGridPlugin, listPlugin]}
+  initialView="dayGridMonth"
+  events={events}
+  dateClick={(info) => handleAddEvent(info.dateStr)}
+  eventClick={handleEventClick}
+  locale="ko"
+  headerToolbar={{
+    left: 'prev,next today',
+    center: 'title',
+    right: 'dayGridMonth,timeGridWeek,timeGridDay,listMonth',
+  }}
+  buttonText={{
+    prev: '<',
+    next: '>',
+    today: 'Today',
+    dayGridMonth: 'Month',
+    timeGridWeek: 'Week',
+    timeGridDay: 'Day',
+    listMonth: 'list',
+  }}
+  titleFormat={{
+    year: 'numeric',
+    month: 'long', // 년도와 월만 표시
+  }}
+  views={{
+    dayGrid: {
+      fixedWeekCount: false,
+      dayMaxEvents: 5,
+    }
+  }}
+/>
+
+          {showEventDetails()}
+
           {weather && (
             <table className="weather" style={{ borderCollapse: 'collapse', marginTop: '20px' }}>
               <thead>
@@ -169,22 +228,12 @@ function App() {
               </tbody>
             </table>
           )}
+          
         </div>
-        <div
-          id="popup"
-          style={{
-            width: '500px',
-            height: '600px',
-            display: 'none',
-            backgroundColor: 'white',
-            padding: '20px',
-            borderRadius: '14px',
-            border: '2px solid #eeeeee',
-          }}
-        ></div>
       </div>
+
       <div className="chatbot-container">
-        <Chatbot /> {/* 챗봇 컴포넌트 */}
+        <Chatbot />
       </div>
     </div>
   );
