@@ -1,12 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
-function AddEventForm({ selectedEvent, calendar, onClose }) {
-  const todayDateTime = new Date().toISOString().slice(0, 16);
-
+function AddEventForm({ newEvent, setNewEvent, onSave, selectedEvent, calendar, onClose }) {
+  const [startDate, setStartDate] = useState(newEvent.start);
+  const [endDate, setEndDate] = useState(newEvent.end);
   const [summary, setSummary] = useState('');
   const [description, setDescription] = useState('');
-  const [startDate, setStartDate] = useState(selectedEvent ? selectedEvent.start.slice(0, 16) : todayDateTime);
-  const [endDate, setEndDate] = useState(selectedEvent ? selectedEvent.end.slice(0, 16) : todayDateTime);
+
+  // 새로운 이벤트가 전달될 때마다 시작일과 종료일을 업데이트
+  useEffect(() => {
+    setStartDate(newEvent.start);
+    setEndDate(newEvent.end);
+  }, [newEvent]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -24,6 +28,7 @@ function AddEventForm({ selectedEvent, calendar, onClose }) {
       },
     };
 
+    // 일정 추가 API 호출
     fetch('http://localhost:3001/api/add-event', {
       method: 'POST',
       headers: {
@@ -36,9 +41,9 @@ function AddEventForm({ selectedEvent, calendar, onClose }) {
         console.log('Event added:', data);
         alert('일정이 추가되었습니다.');
         if (calendar) {
-          calendar.refetchEvents();
+          calendar.refetchEvents(); // 캘린더 이벤트 갱신
         }
-        onClose();
+        onClose(); // 폼 닫기
       })
       .catch((err) => {
         console.error('Failed to add event:', err);

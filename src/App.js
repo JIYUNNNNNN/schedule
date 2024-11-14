@@ -9,6 +9,7 @@ import { format } from 'date-fns'; // date-fns 라이브러리에서 format 가�
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faPlus } from '@fortawesome/free-solid-svg-icons';
 import './App.css'; // 스타일 임포트
+import interactionPlugin from '@fullcalendar/interaction'; // 드래그앤 드롭 기능 추가
 
 const API_KEY = '5020074f27033cc755f8d46cb70473ec'; // API 키 정의
 
@@ -31,13 +32,35 @@ function App() {
   const handleShowForm = () => {
     setShowAddEventForm(!showAddEventForm);
   };
-  
 
   // 일정 추가 핸들러
-  const handleAddEvent = (dateStr) => {
-    setNewEvent({ ...newEvent, start: dateStr, end: dateStr });
-    setShowAddEventForm(true);
-  };
+const handleAddEvent = (dateStr, jsEvent) => {
+  // 클릭한 날짜를 기준으로 00:00으로 시작 시간을 설정
+  const startDate = new Date(dateStr);
+  //startDate.setHours(0, 0, 0, 0); // 시간을 00:00으로 설정
+  const endDate = new Date(startDate);
+  //endDate.setHours(1, 0, 0, 0); // 종료 시간을 1시간 뒤로 설정
+
+  const start = startDate.toISOString().slice(0, 16); // 'YYYY-MM-DDTHH:mm'
+  const end = endDate.toISOString().slice(0, 16); // 'YYYY-MM-DDTHH:mm'
+
+  const { adjustedX, adjustedY } = adjustPopupPosition(jsEvent.clientX, jsEvent.clientY);
+  
+  setNewEvent({ ...newEvent, start, end });
+  setMouseX(jsEvent.clientX); // 클릭한 위치의 X 좌표 저장
+  setMouseY(jsEvent.clientY); // 클릭한 위치의 Y 좌표 저장
+  setShowAddEventForm(true);
+};
+
+const adjustPopupPosition = (x, y) => {
+  const windowWidth = window.innerWidth;
+  const windowHeight = window.innerHeight;
+
+  // 화면 밖으로 나가지 않도록 위치 조정
+  const adjustedX = Math.min(x, windowWidth - 300); // 300px은 팝업 너비
+  const adjustedY = Math.min(y, windowHeight - 200); // 200px은 팝업 높이
+  return { adjustedX, adjustedY };
+};
 
   // 일정 삭제 핸들러
   const handleDelete = () => {
@@ -74,27 +97,39 @@ function App() {
     fetch('http://localhost:3001/api/events')
       .then((response) => response.json())
       .then((data) => {
-        const calendarEvents = data.map((event) => ({
-          id: event.id,
-          title: event.summary,
-          start: event.start.dateTime || event.start.date,
-          end: event.end.dateTime || event.end.date,
-          location: event.location || '',
-          description: event.description || '',
-        }));
+        const calendarEvents = data.map((event) => {
+          let startTime = event.start.dateTime || event.start.date;
+          let endTime = event.end.dateTime || event.end.date;
+  
+          // 시작 시간과 끝 시간이 같으면 종료 시간을 1시간 뒤로 설정
+          if (startTime === endTime) {
+            const adjustedEndTime = new Date(startTime);
+            adjustedEndTime.setHours(adjustedEndTime.getHours() + 1);
+            endTime = adjustedEndTime.toISOString();
+          }
+  
+          return {
+            id: event.id,
+            title: event.summary,
+            start: startTime,
+            end: endTime,
+            location: event.location || '',
+            description: event.description || '',
+          };
+        });
         setEvents(calendarEvents);
       })
       .catch((error) => console.error('이벤트 가져오기 중 오류 발생:', error));
   };
 
   // 새 이벤트 저장 핸들러
-  const handleSave = () => {
-    const event = {
-      title: `${newEvent.content_title} - ${newEvent.description}`,
-      start: newEvent.start,
-      end: newEvent.end,
-      location: newEvent.location,
-    };
+  const handleSave = (event) => {
+    // const event = {
+    //   title: `${newEvent.content_title} - ${newEvent.description}`,
+    //   start: newEvent.start,
+    //   end: newEvent.end,
+    //   location: newEvent.location,
+    // };
 
     setEvents((prevEvents) => [...prevEvents, event]);
     setNewEvent({ content_title: '', description: '', location: '', start: '', end: '' });
@@ -132,7 +167,72 @@ function App() {
     }
     return null;
   };
+  const handleEventDrop = (info) => {
+    const updatedEvent = {
+      id: info.event.id,
+      summary: info.event.title,  // 제목 정보 추가
+      start: info.event.startStr,
+      end: info.event.endStr,
+    };
 
+    fetch(`http://localhost:3001/api/update-event/${info.event.id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(updatedEvent),
+    })
+      .then((response) => {
+        if (response.ok) {
+          setEvents((prevEvents) =>
+            prevEvents.map((event) =>
+              event.id === updatedEvent.id
+                ? { ...event, start: updatedEvent.start, end: updatedEvent.end }
+                : event
+            )
+          );
+        } else {
+          console.error('이벤트 업데이트 실패');
+        }
+      })
+      .catch((error) => {
+        console.error('이벤트 업데이트 중 오류 발생:', error);
+      });
+  };
+
+  const handleEventResize = (info) => {
+    const updatedEvent = {
+      id: info.event.id,
+      summary: info.event.title,
+      start: info.event.startStr,
+      end: info.event.end ? info.event.end.toISOString() : info.event.start.toISOString(),  // 하루 일정 처리
+    };
+
+    fetch(`http://localhost:3001/api/update-event/${info.event.id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        body: JSON.stringify(updatedEvent),
+      },
+      body: JSON.stringify(updatedEvent),
+    })
+      .then((response) => {
+        if (response.ok) {
+          setEvents((prevEvents) =>
+            prevEvents.map((event) =>
+              event.id === updatedEvent.id
+                ? { ...event, start: updatedEvent.start, end: updatedEvent.end }
+                : event
+            )
+          );
+        } else {
+          console.error('이벤트 업데이트 실패');
+        }
+      })
+      .catch((error) => {
+        console.error('이벤트 업데이트 중 오류 발생:', error);
+      });
+  };
   useEffect(() => {
     navigator.geolocation.getCurrentPosition((position) => {
       const { latitude, longitude } = position.coords;
@@ -157,13 +257,13 @@ function App() {
     <div className="app-container">
       <div className="calendar-container">
         <div>
-          <button onClick={handleShowForm} className="add-event-button">
+          {/* <button onClick={handleShowForm} className="add-event-button">
             <FontAwesomeIcon icon={faPlus} size="2x" />
-          </button>
+          </button> */}
 
           {/* 팝업 폼 */}
           {showAddEventForm && (
-            <div className="popup-form" style={{ position: 'absolute', top: '50px', left: '70px', zIndex: 1000 }}>
+            <div className="popup-form" style={{ position: 'absolute', top: mouseY, left: mouseX, zIndex: 1000 }}>
               <AddEventForm
                 newEvent={newEvent}
                 setNewEvent={setNewEvent}
@@ -174,11 +274,13 @@ function App() {
           )}
 
 <FullCalendar
-  plugins={[dayGridPlugin, timeGridPlugin, listPlugin]}
+  plugins={[dayGridPlugin, timeGridPlugin, listPlugin, interactionPlugin]} // interactionPlugin 추가
   initialView="dayGridMonth"
   events={events}
-  dateClick={(info) => handleAddEvent(info.dateStr)}
+  dateClick={(info) => handleAddEvent(info.dateStr, info.jsEvent)}
   eventClick={handleEventClick}
+  eventDrop={handleEventDrop} // 이벤트 드래그앤 드롭 핸들러 추가
+  eventResize={handleEventResize} // 이벤트 리사이즈 핸들러 추가
   locale="ko"
   headerToolbar={{
     left: 'prev,next today',
@@ -198,6 +300,8 @@ function App() {
     year: 'numeric',
     month: 'long', // 년도와 월만 표시
   }}
+  editable={true} // 드래그앤 드롭을 활성화
+  droppable={true} // 외부 드래그 지원 활성화
   views={{
     dayGrid: {
       fixedWeekCount: false,
@@ -211,19 +315,19 @@ function App() {
           {weather && (
             <table className="weather" style={{ borderCollapse: 'collapse', marginTop: '20px' }}>
               <thead>
-                <tr>
+                {/* <tr>
                   <th>지역</th>
                   <th>날씨</th>
                   <th>온도</th>
                   <th>풍향/풍속</th>
-                </tr>
+                </tr> */}
               </thead>
               <tbody>
                 <tr>
                   <td>{weather.city}</td>
                   <td>{weather.description}</td>
                   <td>{weather.temperature}°C</td>
-                  <td>{weather.wind}</td>
+                  {/* <td>{weather.wind}</td> */}
                 </tr>
               </tbody>
             </table>

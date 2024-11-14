@@ -30,24 +30,129 @@ const pool = mysql.createPool({
 
 const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
 
-// 내일 날짜 처리 함수
-function parseTomorrowDateTime() {
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const month = tomorrow.getMonth() + 1;
-  const day = tomorrow.getDate();
-  return { month, day, hour: 0 }; // 기본 시간 00시로 설정
+// 주기적인 일정 인식 및 RRULE 생성
+function parseRecurrence(content) {
+  const recurrencePattern = /매(주|달|년)\s+(일요일|월요일|화요일|수요일|목요일|금요일|토요일|\d{1,2})\s*(오전|오후)?\s*(\d{1,2})시/;
+  const match = content.match(recurrencePattern);
+
+  if (match) {
+    const frequency = match[1]; // 주기 (주, 달, 년)
+    const dayOrDate = match[2]; // 요일 혹은 날짜
+    const period = match[3]; // 오전/오후
+    let hour = parseInt(match[4], 10); // 시간
+
+    // 오전/오후 시간 변환
+    if (period === '오후' && hour < 12) hour += 12;
+    if (period === '오전' && hour === 12) hour = 0;
+
+    // 요일을 숫자로 변환
+    const dayOfWeekMap = {
+      '일요일': 'SU',
+      '월요일': 'MO',
+      '화요일': 'TU',
+      '수요일': 'WE',
+      '목요일': 'TH',
+      '금요일': 'FR',
+      '토요일': 'SA',
+    };
+
+    // 반복 규칙 (RRULE) 생성
+    let rrule = '';
+    if (frequency === '주') {
+      rrule = `RRULE:FREQ=WEEKLY;BYDAY=${dayOfWeekMap[dayOrDate]};INTERVAL=1;COUNT=104`; // 2년 동안 반복
+    } else if (frequency === '달') {
+      const day = parseInt(dayOrDate, 10);
+      rrule = `RRULE:FREQ=MONTHLY;BYMONTHDAY=${day};INTERVAL=1;COUNT=24`; // 2년 동안 반복
+    } else if (frequency === '년') {
+      const month = parseInt(dayOrDate, 10);
+      rrule = `RRULE:FREQ=YEARLY;BYMONTH=${month};INTERVAL=1;COUNT=10`; // 10년 동안 반복
+    }
+
+    return { rrule, hour }; // 주기적 일정 데이터 반환
+  }
+
+  return null; // 주기적 일정이 없을 경우 null 반환
+}
+ 
+// 지정된 일수 후의 날짜와 시간 처리 함수
+function parseFutureDateTime(daysAfter, timeString) {
+  const futureDate = new Date();
+  futureDate.setDate(futureDate.getDate() + daysAfter);
+
+  const timePattern = /(오전|오후)?\s?(\d{1,2})시/;
+  const timeMatch = timeString ? timeString.match(timePattern) : null;
+  
+  let hour = 0; // 기본값을 0시로 설정
+  
+  if (timeMatch) {
+    const [, period, timeHour] = timeMatch;
+    hour = parseInt(timeHour, 10);
+
+    if (period === '오후' && hour !== 12) {
+      hour += 12; // 오후 시간을 12시간 더함
+    } else if (period === '오전' && hour === 12) {
+      hour = 0; // 오전 12시는 0시로 변환
+    }
+  }
+
+  const month = futureDate.getMonth() + 1;
+  const day = futureDate.getDate();
+  return { month, day, hour };
 }
 
-// 한국어 날짜와 시간을 처리하는 유틸리티 함수
+// 날짜와 시간을 한국어 표현으로 파싱하는 함수
 function parseKoreanDateTime(dateString, timeString) {
-  const datePattern = /(\d{1,2})월\s*(\d{1,2})일/; // "11월1일" 같은 형식도 인식하도록 공백을 선택적으로 처리
-  const timePattern = /(오전|오후)?\s?(\d{1,2})시/; // "7시"도 인식 가능하도록 수정
-  const isoDatePattern = /\d{4}-\d{2}-\d{2}/; // ISO 날짜 형식 정규식 (예: 2022-11-04)
+  const datePattern = /(\d{1,2})월\s*(\d{1,2})일/; // "11월 1일" 형식
+  const timePattern = /(오전|오후|아침|낮|저녁|밤|새벽)?\s?(\d{1,2})시/; // "저녁 7시" 등의 형식
+  const isoDatePattern = /\d{4}-\d{2}-\d{2}/; // ISO 날짜 형식 (예: 2022-11-04)
 
-  // '내일' 처리
+  const now = new Date();
+
+  // 특정 한국어 날짜 표현 처리
   if (dateString.includes("내일")) {
-    return parseTomorrowDateTime();
+    return parseFutureDateTime(1, timeString);
+  }
+  if (dateString.includes("모레")) {
+    return parseFutureDateTime(2, timeString);
+  }
+  if (dateString.includes("글피")) {
+    return parseFutureDateTime(3, timeString);
+  }
+  if (dateString.includes("그글피")) {
+    return parseFutureDateTime(4, timeString);
+  }
+
+  // '오늘'에 대한 처리
+  if (dateString.includes("오늘")) {
+    let hour = 0; // 기본값을 0시로 설정
+    let minute = 0; // 기본값을 0분으로 설정
+
+    const timeMatch = timeString ? timeString.match(timePattern) : null;
+
+    if (timeMatch) {
+      const [, period, timeHour] = timeMatch;
+      hour = parseInt(timeHour, 10);
+
+      // 오전/오후 또는 시간대에 따라 24시간 형식으로 변환
+      if (period === '오후' && hour !== 12) {
+        hour += 12;
+      } else if (period === '오전' && hour === 12) {
+        hour = 0;
+      }
+      // 시간대별 처리 (새벽, 아침, 낮, 저녁, 밤)
+      else if (['저녁', '밤'].includes(period) && hour < 12) {
+        hour += 12;
+      } else if (period === '새벽' && hour === 12) {
+        hour = 0;
+      }
+    }
+
+    return {
+      month: now.getMonth() + 1, // 월은 0부터 시작하므로 +1
+      day: now.getDate(),         // 오늘의 일(day)
+      hour,                       // 시간 (24시간 형식)
+      minute                      // 기본적으로 0분 설정
+    };
   }
 
   // ISO 날짜 형식 처리
@@ -57,7 +162,7 @@ function parseKoreanDateTime(dateString, timeString) {
     return { month: parseInt(month, 10), day: parseInt(day, 10), hour: 0 };
   }
 
-  // 날짜 패턴 매칭
+  // "11월 1일" 형식의 날짜 패턴 처리
   const dateMatch = dateString.match(datePattern);
   const timeMatch = timeString ? timeString.match(timePattern) : null;
 
@@ -74,13 +179,24 @@ function parseKoreanDateTime(dateString, timeString) {
     const [, period, timeHour] = timeMatch;
     hour = parseInt(timeHour, 10);
 
-    if (period === '오후' && hour !== 12) {
-      hour += 12; // 오후 시간을 12시간 더함
-    } else if (period === '오전' && hour === 12) {
-      hour = 0; // 오전 12시는 0시로 변환
+    if (period) {
+      switch (period) {
+        case '오후':
+        case '저녁':
+        case '밤':
+          if (hour < 12) hour += 12;
+          break;
+        case '오전':
+        case '아침':
+        case '새벽':
+          if (hour === 12) hour = 0;
+          break;
+        case '낮':
+          if (hour < 6) hour += 12; // 낮은 일반적으로 12시부터 오후 6시까지로 가정
+          break;
+      }
     }
   }
-
   console.log(`Parsed Date: ${month}/${day}, Hour: ${hour}`); // 디버깅을 위한 로그
   return { month, day, hour };
 }
@@ -89,71 +205,85 @@ app.post('/api/chat', async (req, res) => {
   try {
     const { type, content } = req.body;
 
-    if (type === 'delete') { // 삭제 처리
-      // 사용자가 제공한 내용을 기반으로 제목과 날짜를 파싱합니다.
-      const prompt = `
-        Identify the event title and date to delete from the following message:
-        Message: "${content}"
-      `;
-    
-      const gptResponse = await axios.post(
-        'https://api.openai.com/v1/chat/completions',
-        {
-          model: 'gpt-3.5-turbo',
-          messages: [{ role: 'system', content: prompt }],
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${OPENAI_API_KEY}`,
-            'Content-Type': 'application/json',
-          },
+    if (type === 'delete') {
+        // GPT 프롬프트 설정 (더 구체적)
+        const prompt = `
+            Identify only the event title in the message below. Ignore words like "delete" or "remove". 
+            Only return the event title exactly as it appears.
+            Message: "${content}"
+        `;
+
+        const gptResponse = await axios.post(
+            'https://api.openai.com/v1/chat/completions',
+            {
+                model: 'gpt-3.5-turbo',
+                messages: [{ role: 'system', content: prompt }],
+            },
+            {
+                headers: {
+                    Authorization: `Bearer ${OPENAI_API_KEY}`,
+                    'Content-Type': 'application/json',
+                },
+            }
+        );
+
+        // GPT 응답에서 제목과 날짜 추출
+        let extractedTitle = gptResponse.data.choices[0].message.content.trim();
+        
+        // 불필요한 단어가 포함되어 있는지 확인하고 정리 (예: "삭제", "해줘")
+        extractedTitle = extractedTitle.replace(/(삭제|해줘|제거)/g, '').trim();
+
+        console.log('Extracted event title to delete:', extractedTitle);
+
+        // 날짜가 없을 경우 오류 반환
+        const dateMatch = content.match(/\d+월 \d+일/);
+        const extractedDate = dateMatch ? dateMatch[0] : null;
+
+        console.log('Extracted event date:', extractedDate);
+
+        if (!extractedDate) {
+            return res.status(400).json({ error: '삭제할 날짜를 찾을 수 없습니다.' });
         }
-      );
-    
-      const extractedData = gptResponse.data.choices[0].message.content.trim();
-      console.log('Extracted data from GPT:', extractedData);
-      
-      // 예시: "내일 오전 10시에 회의 삭제" => { title: "회의", date: "내일", time: "오전 10시" }
-      const { title, date, time } = JSON.parse(extractedData);
-      
-      // 날짜를 파싱합니다.
-      const parsedDate = parseKoreanDateTime(date, time);
-      
-      // 날짜와 시간을 기반으로 이벤트를 검색합니다.
-      const timeMin = new Date(parsedDate.year, parsedDate.month - 1, parsedDate.day, parsedDate.hour).toISOString();
-      const timeMax = new Date(parsedDate.year, parsedDate.month - 1, parsedDate.day, parsedDate.hour + 1).toISOString(); // 다음 시간까지 검색
-    
-      // 특정 날짜의 이벤트 가져오기
-      const listResponse = await calendar.events.list({
-        calendarId: 'primary',
-        timeMin: timeMin,
-        timeMax: timeMax,
-        singleEvents: true,
-        orderBy: 'startTime',
-      });
-    
-      // 제목 비교 및 삭제
-      const events = listResponse.data.items;
-      let eventDeleted = false;
-    
-      for (const event of events) {
-        // 제목이 일치하는 경우 삭제
-        if (event.summary === title) {
-          await calendar.events.delete({
+
+        // 날짜 파싱
+        const eventDate = new Date(`${new Date().getFullYear()}-${extractedDate.replace('월 ', '-').replace('일', '')}`);
+        if (isNaN(eventDate)) {
+            return res.status(400).json({ error: '날짜 형식이 잘못되었습니다.' });
+        }
+
+        const timeMin = new Date(eventDate.getFullYear(), eventDate.getMonth(), eventDate.getDate()).toISOString();
+        const timeMax = new Date(eventDate.getFullYear(), eventDate.getMonth(), eventDate.getDate() + 1).toISOString();
+
+        // 특정 날짜의 이벤트 가져오기
+        const listResponse = await calendar.events.list({
             calendarId: 'primary',
-            eventId: event.id, // 삭제할 이벤트 ID
-          });
-          eventDeleted = true;
-          return res.json({ reply: `일정이 삭제되었습니다: ${event.summary}` });
+            timeMin: timeMin,
+            timeMax: timeMax,
+            singleEvents: true,
+            orderBy: 'startTime',
+        });
+
+        // 제목 비교 및 삭제
+        const events = listResponse.data.items;
+        let eventDeleted = false;
+
+        for (const event of events) {
+            if (event.summary === extractedTitle) {
+                await calendar.events.delete({
+                    calendarId: 'primary',
+                    eventId: event.id,
+                });
+                eventDeleted = true;
+                return res.json({ reply: `일정이 삭제되었습니다: ${event.summary}` });
+            }
         }
-      }
-    
-      // 일치하는 일정이 없을 경우
-      if (!eventDeleted) {
-        res.status(404).json({ error: '삭제할 일정이 없습니다.' });
-      }
-      
-    }else if (type === 'event') { // 일정 추가 처리
+
+        // 일치하는 일정이 없을 경우
+        if (!eventDeleted) {
+            res.status(404).json({ error: '삭제할 일정이 없습니다.' });
+        }
+    }
+else if (type === 'event') { // 일정 추가 처리
       // GPT 프롬프트 설정
       const prompt = `
         Extract event details from the following message. Ignore phrases like "넣어줘", "추가해줘" and return a clean event title.
@@ -166,7 +296,7 @@ app.post('/api/chat', async (req, res) => {
         }
         Message: "${content}"
       `;
-
+    
       const gptResponse = await axios.post(
         'https://api.openai.com/v1/chat/completions',
         {
@@ -180,34 +310,34 @@ app.post('/api/chat', async (req, res) => {
           },
         }
       );
-
+    
       const extractedData = gptResponse.data.choices[0].message.content;
       console.log('Extracted data from GPT:', extractedData);
-
+    
       const { eventTitle, date, time, recurrence } = JSON.parse(extractedData);
-
+    
       // 필수 데이터 체크
       if (!date) {
         throw new Error('필수 일정 데이터가 누락되었습니다.');
       }
-
+    
       const { start: startDate, end: endDate } = date;
       let startTime = time?.startTime || "00시";
-      let endTime = time?.endTime || "23시59분";
-
+      let endTime = time?.endTime || startTime; // 종료 시간이 없으면 시작 시간과 동일하게 설정
+    
       const startParsed = parseKoreanDateTime(startDate, startTime);
       const endParsed = parseKoreanDateTime(endDate || startDate, endTime);
-
+    
       const currentYear = new Date().getFullYear();
       const startDateTime = new Date(currentYear, startParsed.month - 1, startParsed.day, startParsed.hour).toISOString();
       const endDateTime = new Date(currentYear, endParsed.month - 1, endParsed.day, endParsed.hour).toISOString();
-
+    
       const event = {
         summary: eventTitle,
         start: { dateTime: startDateTime, timeZone: 'Asia/Seoul' },
         end: { dateTime: endDateTime, timeZone: 'Asia/Seoul' },
       };
-
+    
       // 주기적 일정 추가
       if (recurrence) {
         if (recurrence === 'weekly') {
@@ -218,12 +348,12 @@ app.post('/api/chat', async (req, res) => {
           event.recurrence = ['RRULE:FREQ=YEARLY;INTERVAL=1;COUNT=10'];
         }
       }
-
+    
       const calendarResponse = await calendar.events.insert({
         calendarId: 'primary',
         requestBody: event,
       });
-
+    
       res.json({ reply: `일정이 추가되었습니다: ${eventTitle}`, event: calendarResponse.data });
     } else {
       // 기타 요청 처리
@@ -251,8 +381,34 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
+//업데이트
+app.put('/api/update-event/:eventId', async (req, res) => {
+  try {
+    const eventId = req.params.eventId;
+    const {summary, start, end } = req.body;
 
+    if (!summary) {
+      console.error('Error: summary is missing');
+      return res.status(400).json({ error: 'summary is required' });
+    }
+    const updatedEvent = {
+      summary, 
+      start: { dateTime: start },
+      end: { dateTime: end },
+    };
 
+    const response = await calendar.events.update({
+      calendarId: 'primary',
+      eventId: eventId,
+      requestBody: updatedEvent,
+    });
+
+    res.json(response.data);
+  } catch (error) {
+    console.error('Error updating event in Google Calendar:', error);
+    res.status(500).json({ error: 'Failed to update event in Google Calendar' });
+  }
+});
 
 // 구글 캘린더 이벤트 가져오기
 app.get('/api/events', async (req, res) => {
@@ -305,6 +461,7 @@ app.delete('/api/delete-event/:eventId', async (req, res) => {
     res.status(500).json({ error: 'Error deleting event' });
   }
 });
+
 // 구글 캘린더 이벤트 제목으로 검색 후 삭제하기
 app.delete('/api/delete-event-by-title', async (req, res) => {
   try {
